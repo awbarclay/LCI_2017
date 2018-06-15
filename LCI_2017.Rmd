@@ -1,0 +1,221 @@
+---
+title: "Lower Cook Inlet Chinook marine sport harvest MSA"
+author: "Andy Barclay"
+date: "June 14, 2018"
+output: html_document
+---
+##Set up workspace
+###Get functions and load tidy packages
+```{r workspace setup, echo=TRUE}
+
+source("C:\\Users\\awbarclay\\Documents\\R\\GitHubCloneFunctions.R")#GCL functions
+source("V:\\Analysis\\Staff\\Andy Barclay\\R\\New Functions\\WorkspaceFolders.GCL.R")#A function I wrote
+
+library("tidyverse")
+
+```
+
+###Create output folders 
+```{r create folders, echo=TRUE, message=FALSE}
+#WorkspaceFolders.GCL(Folders=c("Output","objects","rubias"),Subfolders=list(rubias=c("baseline","mixture","output")),wd=getwd())
+
+```
+
+###Create locus control and get genotype data
+```{r locus control, echo=TRUE}
+
+#CreateLocusControl.GCL(markersuite = "LCI_Chinook_43SNPs", username ="awbarclay", password = password)#Locus control
+
+sillyvec<-c("KCIMHO17","KCIMAP17","KCIMDC17")
+
+#LOKI2R.GCL(sillyvec=sillyvec,username="awbarclay",password)#Pull Data from LOKI
+
+#save.image("V:/Analysis/2_Central/Chinook/Lower Cook Inlet/LCI_2017/LCI_2017.Rdata")
+
+load("V:/Analysis/2_Central/Chinook/Lower Cook Inlet/LCI_2017/LCI_2017.Rdata")
+```
+###Create initial locus object
+The Cook Inlet genetic baseline was analyzed for a 96 SNP locus set.  To reduce analysis cost, the locus set was reduced to 24 loci with the highest FST values
+```{r initial locus object}
+
+loci <- LocusControl$locusnames
+loci
+
+```
+
+##Data cleanup
+###Check initial sample size
+```{r initial sample size, echo=TRUE}
+
+silly_N<-function(sillyvec){sapply(sillyvec,function(silly){get(paste0(silly,".gcl"))$n})}#Function for sample sizes
+
+ColSize<-data.frame(row.names = sillyvec)
+ColSize$Original_N <-silly_N(sillyvec)
+ColSize
+
+```
+###Check genotypes by locus
+This is the proportion of the samples with genotypes by locus
+```{r sample size by locus}
+
+SampSizeByLoc<-as.tibble(SampSizeByLocus.GCL(sillyvec,loci)/ColSize$Original_N) %>% 
+  mutate(Collection=sillyvec) %>% 
+  select(Collection,everything()) %>% 
+  gather(key=Locus,value="Proportion",-Collection)
+
+head(SampSizeByLoc)
+```
+#Heatmap to check for holes
+```{r heatmap of genotype holes, fig.height=24, fig.width=20}
+
+SampSizeByLoc %>% 
+  ggplot(aes(Collection,Locus,fill=Proportion))+
+  geom_tile()
+
+```
+###Removing individuals with <80% of loci with gentotypes
+Fish that have gentoypes for less than 80% of loci are likely to have poor quality DNA and might introduce gentotyping errors into the mixture data and reduce the accruacy of the mixed stock analysis (MSA)
+```{r missloci,echo=TRUE}
+
+MissLOCI=RemoveIndMissLoci.GCL(sillyvec=sillyvec,proportion=0.8)
+MissLOCI
+
+ColSize$AfterMissLoci_N <- silly_N(sillyvec)
+ColSize
+
+```
+
+###Check for duplicate individuals and remove them
+Fish with 99% of scores that match
+```{r dupckeck, echo=TRUE, message=FALSE}
+
+dupcheck<-CheckDupWithinSilly.GCL(sillyvec=sillyvec,loci=loci,quantile=NULL,minproportion=0.99)
+
+```
+```{r remove duplicate fish,results="hide"}
+
+DupsRemoved<-RemoveDups.GCL(dupcheck)#Remove one of the duplicates
+
+```
+```{r final sample size}
+ColSize$Final_N <- silly_N(sillyvec)
+ColSize
+
+```
+##Setup mixtures
+###Create vector of mixture names
+```{r mixvec, echo=FALSE}
+
+mixvec<-c("LCI_Summer","LCI_Winter","UCI_Early","UCI_Late")  
+
+```
+
+###Get mixture IDs from attributes and create mixture .gcl objects
+```{r attributes table}
+attr<-bind_rows(set_names(lapply(sillyvec,function(silly){as.tibble(get(paste0(silly,".gcl"))$attributes)}),sillyvec))
+attr
+```
+####LCI_winter
+```{r LCI_winter}
+
+LCI_Winter_IDs<-set_names(lapply(sillyvec,function(silly){
+  
+  attr %>% filter(CAPTURE_LOCATION=="LCI_Winter",SILLY_CODE==silly) %>% 
+    select(FK_FISH_ID) %>% 
+    as_vector() %>% 
+    as.character()
+
+}),sillyvec) %>% 
+  purrr::compact()
+  
+
+PoolCollections.GCL(collections=names(LCI_Winter_IDs),loci = loci, IDs=LCI_Winter_IDs,newname = "LCI_Winter")
+  
+```
+####LCI_Summer_IDs
+```{r LCI_Summer_IDs}
+
+LCI_Summer_IDs<-set_names(lapply(sillyvec,function(silly){
+  
+  attr %>% filter(CAPTURE_LOCATION=="LCI_Summer",SILLY_CODE==silly) %>% 
+    select(FK_FISH_ID) %>% 
+    as_vector() %>% 
+    as.character()
+
+}),sillyvec) %>% 
+  purrr::compact()
+
+PoolCollections.GCL(collections=names(LCI_Summer_IDs),loci = loci,IDs=LCI_Summer_IDs,newname = "LCI_Summer")
+
+```
+####UCI_Early_IDs
+```{r UCI_Early_IDs}
+
+UCI_Early_IDs<-set_names(lapply(sillyvec,function(silly){
+  
+  attr %>% filter(CAPTURE_LOCATION=="UCI_Early",SILLY_CODE==silly) %>% 
+    select(FK_FISH_ID) %>% 
+    as_vector() %>% 
+    as.character()
+
+}),sillyvec) %>% 
+  purrr::compact()
+
+PoolCollections.GCL(collections=names(UCI_Early_IDs),loci = loci,IDs=UCI_Early_IDs,newname = "UCI_Early")
+
+```
+####UCI_Late_IDs
+```{r UCI_Late_IDs}
+
+UCI_Late_IDs<-set_names(lapply(sillyvec,function(silly){
+  
+  attr %>% filter(CAPTURE_LOCATION=="UCI_Late",SILLY_CODE==silly) %>% 
+    select(FK_FISH_ID) %>% 
+    as_vector() %>% 
+    as.character()
+
+}),sillyvec) %>% 
+  purrr::compact()
+
+PoolCollections.GCL(collections=names(UCI_Late_IDs),loci = loci,IDs=UCI_Late_IDs,newname = "UCI_Late")
+
+```
+####Check mixture sample sizes
+```{r sample size check}
+
+silly_N(sillyvec=mixvec)
+
+```
+
+####Create rubias mixtures
+```{r rubias mixtures}
+
+rubias_mixtures <- lapply(mixvec,function(mix){
+  
+  create_rubias_mixture(sillyvec = mix,loci = loci, path = "rubias/mixture")
+  
+  }) %>% 
+  
+  set_names(mixvec)
+
+```
+##Set up baseline
+###Get objects from baseline workspace
+```{r baseline objects}
+
+attach("V:/Analysis/2_Central/Chinook/Lower Cook Inlet/2015/Baseline/LowerCIChinook2015Baseline.RData")
+
+PooledNames211<-PooledNames211
+
+groupvec<-LCIgroupvec
+
+#loci43<-loci43 this list of loci contains PSMB1 and not NRP, drop PSMB1 since it was not run on the mixture analysis project 
+loci42<-loci43[29]
+
+basefortran=CreateBaseline.GCL(sillyvec=PooledNames211,loci=loci42,dir="BAYES/Baseline",basename="LCI211pops42loci",type="BAYES",groupvec=NULL)
+
+detach(pos=match(x="file:V:/Analysis/2_Central/Chinook/Lower Cook Inlet/2015/Baseline/LowerCIChinook2015Baseline.RData",table=search()))#Detach from baseline data.
+
+
+```
+
