@@ -34,8 +34,8 @@ sillyvec<-c("KCIMHO17","KCIMAP17","KCIMDC17")
 
 load("V:/Analysis/2_Central/Chinook/Lower Cook Inlet/LCI_2017/LCI_2017.Rdata")
 ```
+
 ###Create initial locus object
-The Cook Inlet genetic baseline was analyzed for a 96 SNP locus set.  To reduce analysis cost, the locus set was reduced to 24 loci with the highest FST values
 ```{r initial locus object}
 
 loci <- LocusControl$locusnames
@@ -54,6 +54,7 @@ ColSize$Original_N <-silly_N(sillyvec)
 ColSize
 
 ```
+
 ###Check genotypes by locus
 This is the proportion of the samples with genotypes by locus
 ```{r sample size by locus}
@@ -130,7 +131,7 @@ detach(pos=match(x="file:V:/Analysis/2_Central/Chinook/Lower Cook Inlet/2015/Bas
 ###Replace zero with NA some baseline scores
 The old baseline data contains NAs and zeros for some scores. Eric Anderson's github page for rubias says that missing data should be NAs. Rubias determines the ploidy of a marker by looking for missing data in one of the alleles. Rubias was giving this error message:"Error in get_ploidy_from_frame(tmp) : Bailing out due to single gene copies being missing data at non-haploid loci." 
 
-An addtional issue with some of the old baseline data is that there are scores for allele 2 of C3N3 in some pops. Look like this is may fault as I filled in genotypes for some collections in areas where we know C3N3 is fixed, but I accidentally added scores to the second allele in some pops.  
+I think the cause of the error is that there are scores for allele 2 of C3N3 in some pops. Look like this is may fault as I filled in genotypes for some collections in areas where we know C3N3 is fixed, but I accidentally added scores to the second allele in some pops durring the baseline analysis.
 
 ```{r make NAs zero, results="hide"}
 
@@ -162,7 +163,7 @@ attr<-bind_rows(set_names(lapply(sillyvec,function(silly){as.tibble(get(paste0(s
 attr
 ```
 ####LCI_winter
-```{r LCI_winter}
+```{r LCI_winter,message=FALSE,result="hide"}
 
 LCI_Winter_IDs<-set_names(lapply(sillyvec,function(silly){
   
@@ -179,7 +180,7 @@ PoolCollections.GCL(collections=names(LCI_Winter_IDs),loci = loci42, IDs=LCI_Win
   
 ```
 ####LCI_Summer_IDs
-```{r LCI_Summer_IDs}
+```{r LCI_Summer_IDs,message=FALSE,result="hide"}
 
 LCI_Summer_IDs<-set_names(lapply(sillyvec,function(silly){
   
@@ -194,8 +195,9 @@ LCI_Summer_IDs<-set_names(lapply(sillyvec,function(silly){
 PoolCollections.GCL(collections=names(LCI_Summer_IDs),loci = loci42,IDs=LCI_Summer_IDs,newname = "LCI_Summer")
 
 ```
+
 ####UCI_Early_IDs
-```{r UCI_Early_IDs}
+```{r UCI_Early_IDs,message=FALSE,result="hide"}
 
 UCI_Early_IDs<-set_names(lapply(sillyvec,function(silly){
   
@@ -212,7 +214,7 @@ PoolCollections.GCL(collections=names(UCI_Early_IDs),loci = loci42,IDs=UCI_Early
 ```
 
 ####UCI_Late_IDs
-```{r UCI_Late_IDs}
+```{r UCI_Late_IDs,message=FALSE,result="hide"}
 
 UCI_Late_IDs<-set_names(lapply(sillyvec,function(silly){
   
@@ -227,12 +229,14 @@ UCI_Late_IDs<-set_names(lapply(sillyvec,function(silly){
 PoolCollections.GCL(collections=names(UCI_Late_IDs),loci = loci42,IDs=UCI_Late_IDs,newname = "UCI_Late")
 
 ```
+
 ####Check mixture sample sizes
 ```{r sample size check}
 
 silly_N(sillyvec=mixvec)
 
 ```
+
 ####Create rubias mixtures
 ```{r rubias mixtures,results="hide"}
 
@@ -248,6 +252,7 @@ for(loc in loci_allele){
   
 write_excel_csv(x=rubias_mixtures,path="rubias/mixture/rubias_mixtures.csv")
 ```
+
 ##Mixture Analysis
 ###Analyze mixtures in rubias
 Analyzing mixtures with bias correction (method="PB") for 25,000 iterations (reps), burning the first 5,000 iterations (burn_in), and thining (sample_int_Pi) by 10 to reduce the size of the results objects.
@@ -262,20 +267,21 @@ run_rubias_mixture(reference=rubias_baseline, mixture=rubias_mixtures, gen_start
 
 ###Get reporting group traces
 Reading in the rubias traces from .csv files
-```{r get results}
+```{r get results,message=FALSE}
 
 repunit_trace<-set_names(lapply(mixvec,function(mix){
   read_csv(paste0("rubias/output/",mix,"_repunit_trace.csv")) %>% 
     mutate(mixture_collection=mix) %>% 
     gather(key="repunit",value="repunit_ppn",Outside_CI,WestSusitna,KnikTurnagain,Kenai,SKenaiPen,-sweep)
   }),mixvec) %>% 
-    bind_rows() %>% 
+    bind_rows()
+  
 repunit_trace
 
 ```
 
 ###Summarize reporting group traces
-```{r sum traces}
+```{r sum traces,message=FALSE}
 
 mix.sum.mc<-repunit_trace %>% 
   mutate(mixture_collection=factor(mixture_collection,levels=mixvec),repunit=factor(repunit,levels=groups)) %>% 
@@ -317,5 +323,59 @@ mix.sum.pb<-mix.sum.mc %>%
          method="PB")
 
 mix.sum.pb
+```
+###Combine MCMC and PB method results
+```{r bind MCMC and PB}
+
+mix.sum<-bind_rows(mix.sum.mc,mix.sum.pb)
+
+```
+
+##Plot results
+###Set up group colors
+```{r group colors}
+
+GrCol<-set_names(c("blue","forestgreen","orange","cyan","red"),groups)
+GrCol
+```
+###Plot MCMC and PB estimates side by side
+Looks like the bias correction didn't change the estimates substantially. Prehapse bias correction is not necessary for this baseline and reporting groups.
+```{r mcmc and pb plots, message=FALSE, fig.height=10, fig.width=8}
+
+mix.sum%>% 
+  ggplot(aes(x=repunit, y = pi_mean, fill =repunit)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  geom_bar(stat="identity",position = "dodge") +
+  geom_errorbar(aes(ymin = lo5CI, ymax = hi95CI, width = 0.3), position = "dodge")+
+  scale_fill_manual(name = "Reporting Group", values = GrCol) +
+  facet_wrap(~ mixture_collection+method,ncol=2) +
+  ylab("Proportion")+
+  xlab("Reporting Group")+
+  ggtitle(label="2017 Cook Inlet Marine Sport Harvest Compostion",subtitle = "Markov Chain Monte Carlo (MCMC) and parametric boostrap bias corrected (PB) estimates")
+
+ggsave(filename = "Output/2017 Cook Inlet Marine sport fishery Chinook salmon harvest compostions_MCMCvsPB.pdf",device="pdf")
+```
+
+###Plot only MCMC estimates
+The biase correction didn't add much so plotting the MCMC esimates on their own. I'll send these to Carol Kerkvliet.
+```{r mcmc plots, message=FALSE, fig.height=10, fig.width=8}
+
+mix.sum%>% 
+  filter(method=="MCMC") %>% 
+  ggplot(aes(x=repunit, y = pi_mean, fill =repunit)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  geom_bar(stat="identity",position = "dodge") +
+  geom_errorbar(aes(ymin = lo5CI, ymax = hi95CI, width = 0.3), position = "dodge")+
+  scale_fill_manual(name = "Reporting Group", values = GrCol) +
+  facet_wrap(~ mixture_collection,ncol=2) +
+  ylab("Proportion")+
+  xlab("Reporting Group")+
+  ggtitle(label="2017 Cook Inlet Marine Sport Harvest Compostion")
+
+ggsave(filename = "Output/2017 Cook Inlet Marine sport fishery Chinook salmon harvest compostions.pdf",device="pdf")
+```
+##Table the results
+```{r table results}
+
 ```
 
