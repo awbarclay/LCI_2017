@@ -102,6 +102,52 @@ ColSize$Final_N <- silly_N(sillyvec)
 ColSize
 
 ```
+##Set up baseline
+###Get objects from baseline workspace
+```{r baseline objects, message=FALSE}
+
+attach("V:/Analysis/2_Central/Chinook/Lower Cook Inlet/2015/Baseline/LowerCIChinook2015Baseline_new.RData")
+
+PooledNames211<-PooledNames211
+
+
+#loci43<-loci43 this list of loci contains PSMB1 and not NRP, drop PSMB1 since it was not run on the mixture analysis project 
+loci42<-loci43[-29]
+
+```
+###Create rubias baseline
+```{r create baseline}
+
+groups<- c("Outside_CI","WestSusitna","KnikTurnagain","Kenai","SKenaiPen")
+
+groupvec <- c(rep(1,63),rep(2,29),rep(3,8),rep(4,12),rep(5,6),rep(1,93))
+
+rubias_baseline <- create_rubias_baseline(sillyvec=PooledNames211,loci = loci42, groupvec = groupvec, group_names = groups, path = "rubias/baseline", baseline_name = "LCI_211pops_42loci")
+
+detach(pos=match(x="file:V:/Analysis/2_Central/Chinook/Lower Cook Inlet/2015/Baseline/LowerCIChinook2015Baseline_new.RData",table=search()))#Detach from baseline data.
+
+```
+###Replace zero with NA some baseline scores
+The old baseline data contains NAs and zeros for some scores. Eric Anderson's github page for rubias says that missing data should be NAs. Rubias determines the ploidy of a marker by looking for missing data in one of the alleles. Rubias was giving this error message:"Error in get_ploidy_from_frame(tmp) : Bailing out due to single gene copies being missing data at non-haploid loci." 
+
+An addtional issue with some of the old baseline data is that there are scores for allele 2 of C3N3 in some pops. Look like this is may fault as I filled in genotypes for some collections in areas where we know C3N3 is fixed, but I accidentally added scores to the second allele in some pops.  
+
+```{r make NAs zero, results="hide"}
+
+loci_allele<-dimnames(rubias_baseline)[[2]]
+
+for(loc in loci_allele){
+  
+  rubias_baseline[,loc]<-replace(rubias_baseline[,loc],rubias_baseline[,loc]==0,NA)
+  
+}
+
+rubias_baseline[,"Ots_C3N3.1"]=as.character(NA)
+  
+write_excel_csv(rubias_baseline,"rubias/baseline/LCI_211pops_42loci_base.csv")
+
+```
+
 ##Setup mixtures
 ###Create vector of mixture names
 ```{r mixvec, echo=FALSE}
@@ -129,7 +175,7 @@ LCI_Winter_IDs<-set_names(lapply(sillyvec,function(silly){
   purrr::compact()
   
 
-PoolCollections.GCL(collections=names(LCI_Winter_IDs),loci = loci, IDs=LCI_Winter_IDs,newname = "LCI_Winter")
+PoolCollections.GCL(collections=names(LCI_Winter_IDs),loci = loci42, IDs=LCI_Winter_IDs,newname = "LCI_Winter")
   
 ```
 ####LCI_Summer_IDs
@@ -145,7 +191,7 @@ LCI_Summer_IDs<-set_names(lapply(sillyvec,function(silly){
 }),sillyvec) %>% 
   purrr::compact()
 
-PoolCollections.GCL(collections=names(LCI_Summer_IDs),loci = loci,IDs=LCI_Summer_IDs,newname = "LCI_Summer")
+PoolCollections.GCL(collections=names(LCI_Summer_IDs),loci = loci42,IDs=LCI_Summer_IDs,newname = "LCI_Summer")
 
 ```
 ####UCI_Early_IDs
@@ -161,9 +207,10 @@ UCI_Early_IDs<-set_names(lapply(sillyvec,function(silly){
 }),sillyvec) %>% 
   purrr::compact()
 
-PoolCollections.GCL(collections=names(UCI_Early_IDs),loci = loci,IDs=UCI_Early_IDs,newname = "UCI_Early")
+PoolCollections.GCL(collections=names(UCI_Early_IDs),loci = loci42,IDs=UCI_Early_IDs,newname = "UCI_Early")
 
 ```
+
 ####UCI_Late_IDs
 ```{r UCI_Late_IDs}
 
@@ -177,7 +224,7 @@ UCI_Late_IDs<-set_names(lapply(sillyvec,function(silly){
 }),sillyvec) %>% 
   purrr::compact()
 
-PoolCollections.GCL(collections=names(UCI_Late_IDs),loci = loci,IDs=UCI_Late_IDs,newname = "UCI_Late")
+PoolCollections.GCL(collections=names(UCI_Late_IDs),loci = loci42,IDs=UCI_Late_IDs,newname = "UCI_Late")
 
 ```
 ####Check mixture sample sizes
@@ -186,36 +233,89 @@ PoolCollections.GCL(collections=names(UCI_Late_IDs),loci = loci,IDs=UCI_Late_IDs
 silly_N(sillyvec=mixvec)
 
 ```
-
 ####Create rubias mixtures
-```{r rubias mixtures}
+```{r rubias mixtures,results="hide"}
 
-rubias_mixtures <- lapply(mixvec,function(mix){
+rubias_mixtures <- create_rubias_mixture(sillyvec = mixvec, loci = loci42, path = "rubias/mixture")
+
+loci_allele<-dimnames(rubias_mixtures)[[2]]
+
+for(loc in loci_allele){
   
-  create_rubias_mixture(sillyvec = mix,loci = loci, path = "rubias/mixture")
+  rubias_mixtures[,loc]<-replace(rubias_mixtures[,loc],rubias_mixtures[,loc]==0,NA)
   
-  }) %>% 
+}
   
-  set_names(mixvec)
+write_excel_csv(x=rubias_mixtures,path="rubias/mixture/rubias_mixtures.csv")
+```
+##Mixture Analysis
+###Analyze mixtures in rubias
+Analyzing mixtures with bias correction (method="PB") for 25,000 iterations (reps), burning the first 5,000 iterations (burn_in), and thining (sample_int_Pi) by 10 to reduce the size of the results objects.
+```{r anlyze mixtures, results="hide",eval=FALSE}
+
+run_rubias_mixture(reference=rubias_baseline, mixture=rubias_mixtures, gen_start_col=5, method = "PB", 
+                   alle_freq_prior = list(const_scaled = 1), reps = 25000, burn_in = 5000, 
+                   pb_iter = 100, sample_int_Pi = 10, pi_prior_pseudo_count_sum = 1, 
+                   path = "rubias/output")
 
 ```
-##Set up baseline
-###Get objects from baseline workspace
-```{r baseline objects}
 
-attach("V:/Analysis/2_Central/Chinook/Lower Cook Inlet/2015/Baseline/LowerCIChinook2015Baseline.RData")
+###Get reporting group traces
+Reading in the rubias traces from .csv files
+```{r get results}
 
-PooledNames211<-PooledNames211
+repunit_trace<-set_names(lapply(mixvec,function(mix){
+  read_csv(paste0("rubias/output/",mix,"_repunit_trace.csv")) %>% 
+    mutate(mixture_collection=mix) %>% 
+    gather(key="repunit",value="repunit_ppn",Outside_CI,WestSusitna,KnikTurnagain,Kenai,SKenaiPen,-sweep)
+  }),mixvec) %>% 
+    bind_rows() %>% 
+repunit_trace
 
-groupvec<-LCIgroupvec
+```
 
-#loci43<-loci43 this list of loci contains PSMB1 and not NRP, drop PSMB1 since it was not run on the mixture analysis project 
-loci42<-loci43[29]
+###Summarize reporting group traces
+```{r sum traces}
 
-basefortran=CreateBaseline.GCL(sillyvec=PooledNames211,loci=loci42,dir="BAYES/Baseline",basename="LCI211pops42loci",type="BAYES",groupvec=NULL)
+mix.sum.mc<-repunit_trace %>% 
+  mutate(mixture_collection=factor(mixture_collection,levels=mixvec),repunit=factor(repunit,levels=groups)) %>% 
+  group_by(mixture_collection,repunit) %>% 
+  summarise(pi_mean = mean(repunit_ppn),
+            lo5CI = quantile(repunit_ppn, probs = 0.05),
+            hi95CI = quantile(repunit_ppn, probs = 0.95),
+            pi_median = quantile(repunit_ppn, probs = 0.5)) %>% 
+  mutate(method="MCMC") %>% 
+  ungroup()
 
-detach(pos=match(x="file:V:/Analysis/2_Central/Chinook/Lower Cook Inlet/2015/Baseline/LowerCIChinook2015Baseline.RData",table=search()))#Detach from baseline data.
+mix.sum.mc
 
+```
 
+###Apply the bias correction
+```{r get bias corrected estimates,message=FALSE}
+
+mix.mean.pb<-set_names(lapply(mixvec,function(mix){
+  read_csv(paste0("rubias/output/",mix,"_bias_corr.csv"))
+  }),mixvec) %>% 
+    bind_rows() %>% 
+  mutate(mixture_collection=factor(mixture_collection,levels=mixvec),repunit=factor(repunit,levels=groups),method="PB")
+
+mix.mean.pb
+
+```
+```{r apply bias correction to mcmc}
+
+corr<-mix.mean.pb$bs_corrected_repunit_ppn-mix.sum.mc$pi_mean#Bias correction
+
+mix.sum.pb<-mix.sum.mc %>% 
+  mutate(mixture_collection=mixture_collection,
+         repunit=repunit,
+         pi_mean=pmin(pmax(pi_mean+corr,0),1),
+         lo5CI=pmin(pmax(lo5CI+corr,0),1),
+         hi95CI=pmin(pmax(hi95CI+corr,0),1),
+         pi_median=pmin(pmax(pi_median+corr,0),1),
+         method="PB")
+
+mix.sum.pb
 ```
 
